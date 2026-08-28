@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Canal Aluno Professor</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- Biblioteca oficial do Supabase (via CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <header class="topbar">
+    <span class="logo">📚 Canal Aluno Professor</span>
+    <div class="user-info hidden" id="user-info">
+      <span id="user-nome"></span>
+      <span class="badge" id="user-papel"></span>
+      <button id="btn-sair">Sair</button>
+    </div>
+  </header>
+
+  <!-- ================= TELA: LOGIN ================= -->
+  <!-- Não existe cadastro público de propósito: contas são criadas
+       pelo admin direto no painel do Supabase (Authentication > Users),
+       já com o papel (aluno/professor) definido. Veja o schema.sql. -->
+  <main class="container" id="tela-auth">
+    <div class="card">
+      <h1>Entrar</h1>
+      <p class="subtitle">Use o e-mail e senha fornecidos pela coordenação</p>
+
+      <form id="form-login">
+        <div class="field">
+          <label>E-mail</label>
+          <input type="email" id="login-email" required placeholder="seu@email.com" />
+        </div>
+        <div class="field">
+          <label>Senha</label>
+          <input type="password" id="login-senha" required placeholder="••••••••" />
+        </div>
+        <p class="msg" id="login-msg"></p>
+        <button type="submit">Entrar</button>
+      </form>
+    </div>
+  </main>
+
+  <!-- ================= TELA: DASHBOARD ALUNO / PROFESSOR (CHAT) ================= -->
+  <main class="container hidden" id="tela-chat">
+    <div class="chat-layout">
+      <aside class="contatos">
+        <h2 id="contatos-titulo">Conversas</h2>
+        <div id="lista-contatos"></div>
+      </aside>
+      <section class="conversa">
+        <div class="conversa-header" id="conversa-header">Selecione uma conversa</div>
+        <div class="conversa-mensagens" id="conversa-mensagens"></div>
+        <form class="conversa-input" id="form-mensagem">
+          <input type="text" id="input-mensagem" placeholder="Digite sua mensagem..." autocomplete="off" disabled />
+          <button type="submit" disabled id="btn-enviar">Enviar</button>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <!-- ================= TELA: DASHBOARD ADMIN ================= -->
+  <main class="container hidden" id="tela-admin">
+    <div class="card wide">
+      <h1>Painel do Administrador</h1>
+      <p class="subtitle">Todos os usuários cadastrados no sistema</p>
+      <table class="tabela-admin">
+        <thead>
+          <tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Criado em</th></tr>
+        </thead>
+        <tbody id="tabela-usuarios-body"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="supabaseClient.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

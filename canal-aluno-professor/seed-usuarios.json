@@ -1,0 +1,32 @@
+[
+  {
+    "nome": "Ana Souza",
+    "email": "ana.souza@escola.com",
+    "senha": "Aluno@123",
+    "papel": "aluno"
+  },
+  {
+    "nome": "Bruno Lima",
+    "email": "bruno.lima@escola.com",
+    "senha": "Aluno@123",
+    "papel": "aluno"
+  },
+  {
+    "nome": "Carla Mendes",
+    "email": "carla.mendes@escola.com",
+    "senha": "Professor@123",
+    "papel": "professor"
+  },
+  {
+    "nome": "Diego Rocha",
+    "email": "diego.rocha@escola.com",
+    "senha": "Professor@123",
+    "papel": "professor"
+  },
+  {
+    "nome": "Fernanda Alves",
+    "email": "fernanda.alves@escola.com",
+    "senha": "Admin@123",
+    "papel": "admin"
+  }
+]
