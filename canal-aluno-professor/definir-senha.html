@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Definir senha — Canal Aluno Professor</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- Biblioteca oficial do Supabase (via CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <header class="topbar">
+    <span class="logo">📚 Canal Aluno Professor</span>
+  </header>
+
+  <main class="container">
+    <div class="card">
+      <h1 id="titulo">Definir senha</h1>
+      <p class="subtitle" id="subtitulo">
+        Você recebeu um convite. Escolha uma senha para acessar sua conta.
+      </p>
+
+      <form id="form-definir-senha">
+        <div class="field">
+          <label>Nova senha</label>
+          <input type="password" id="nova-senha" required minlength="6" placeholder="Mínimo 6 caracteres" />
+        </div>
+        <div class="field">
+          <label>Confirmar senha</label>
+          <input type="password" id="confirmar-senha" required minlength="6" placeholder="Repita a senha" />
+        </div>
+        <p class="msg" id="msg"></p>
+        <button type="submit" id="btn-salvar">Salvar senha e entrar</button>
+      </form>
+    </div>
+  </main>
+
+  <script src="supabaseClient.js"></script>
+  <script>
+    const form = document.getElementById('form-definir-senha');
+    const msg = document.getElementById('msg');
+    const btn = document.getElementById('btn-salvar');
+    const titulo = document.getElementById('titulo');
+    const subtitulo = document.getElementById('subtitulo');
+
+    // Quando o usuário clica no link do e-mail, o Supabase adiciona
+    // um token na URL e a própria biblioteca (detectSessionInUrl,
+    // ligado por padrão) já cria uma sessão temporária automaticamente.
+    // Aqui só conferimos se essa sessão existe antes de liberar o formulário.
+    async function verificarLink() {
+      const { data, error } = await supabaseClient.auth.getSession();
+
+      if (error || !data.session) {
+        titulo.textContent = 'Link inválido ou expirado';
+        subtitulo.textContent = 'Peça para a coordenação enviar um novo convite.';
+        form.classList.add('hidden');
+      }
+    }
+
+    form.addEventListener('submit', async (evento) => {
+      evento.preventDefault();
+      msg.textContent = '';
+
+      const novaSenha = document.getElementById('nova-senha').value;
+      const confirmarSenha = document.getElementById('confirmar-senha').value;
+
+      if (novaSenha !== confirmarSenha) {
+        msg.textContent = 'As senhas não coincidem.';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Salvando...';
+
+      const { error } = await supabaseClient.auth.updateUser({ password: novaSenha });
+
+      if (error) {
+        msg.textContent = 'Erro ao salvar: ' + error.message;
+        btn.disabled = false;
+        btn.textContent = 'Salvar senha e entrar';
+        return;
+      }
+
+      titulo.textContent = 'Senha definida!';
+      subtitulo.textContent = 'Redirecionando para o login...';
+      form.classList.add('hidden');
+
+      setTimeout(() => {
+        window.location.href = 'index.html';
+      }, 1500);
+    });
+
+    verificarLink();
+  </script>
+</body>
+</html>
