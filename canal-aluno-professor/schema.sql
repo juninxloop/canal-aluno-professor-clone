@@ -42,9 +42,18 @@ create table if not exists public.professor_turmas (
   primary key (professor_id, sala_id, materia_id)
 );
 
--- 3) MENSAGENS (de um canal; "privada" = só o professor do canal vê)
-drop table if exists public.mensagens cascade;
-create table public.mensagens (
+-- 3) MENSAGENS (de um canal)
+--   privada = true e destinatario_id vazio -> aluno falando só com o professor
+--   privada = true e destinatario_id = aluno -> professor respondendo só àquele aluno
+-- Só recria a tabela se ela ainda for do modelo antigo (1 a 1).
+do $$ begin
+  if exists (select 1 from information_schema.tables
+             where table_schema = 'public' and table_name = 'mensagens')
+     and not exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'mensagens' and column_name = 'canal_id')
+  then drop table public.mensagens cascade; end if;
+end $$;
+create table if not exists public.mensagens (
   id bigserial primary key,
   canal_id bigint not null references public.canais (id) on delete cascade,
   remetente_id uuid not null references public.perfis (id) on delete cascade,
@@ -52,7 +61,9 @@ create table public.mensagens (
   privada boolean not null default false,
   criado_em timestamptz default now()
 );
-create index on public.mensagens (canal_id, criado_em);
+alter table public.mensagens
+  add column if not exists destinatario_id uuid references public.perfis (id) on delete cascade;
+create index if not exists mensagens_canal_idx on public.mensagens (canal_id, criado_em);
 
 -- 4) DADOS INICIAIS: grade do 1º ano do Ensino Médio (protótipo)
 insert into public.salas (nome) values ('1º A'), ('1º B') on conflict do nothing;
@@ -106,6 +117,15 @@ returns text language sql stable security definer set search_path = public as $$
   select papel from public.perfis where id = auth.uid();
 $$;
 
+-- O aluno (p_aluno) pertence à sala deste canal?
+create or replace function public.aluno_na_sala_do_canal(p_aluno uuid, p_canal bigint)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.canais c
+    join public.perfis p on p.sala_id = c.sala_id
+    where c.id = p_canal and p.id = p_aluno and p.papel = 'aluno');
+$$;
+
 -- 7) SEGURANÇA — Row Level Security
 alter table public.perfis enable row level security;
 alter table public.salas enable row level security;
@@ -135,38 +155,59 @@ drop policy if exists "turmas_select_proprias" on public.professor_turmas;
 create policy "turmas_select_proprias" on public.professor_turmas
   for select to authenticated using (professor_id = auth.uid());
 
--- LER: precisa ver o canal; mensagem privada só para quem enviou
--- ou para o professor do canal. Colegas não veem.
+-- LER: precisa ver o canal. Mensagem privada só aparece para quem enviou,
+-- para o destinatário (aluno que recebeu resposta) e para o professor do canal.
 drop policy if exists "mensagens_select" on public.mensagens;
 create policy "mensagens_select" on public.mensagens
   for select to authenticated using (
     public.pode_ver_canal(canal_id)
     and (not privada
          or remetente_id = auth.uid()
+         or destinatario_id = auth.uid()
          or public.e_professor_do_canal(canal_id)));
 
--- ENVIAR: como si mesmo, em canal que pode ver; privada só se for aluno.
+-- ENVIAR: como si mesmo, em canal que pode ver. Três formas válidas:
+--   pública | privada de aluno (sem destinatário) | privada de professor para um aluno da sala
 drop policy if exists "mensagens_insert" on public.mensagens;
 create policy "mensagens_insert" on public.mensagens
   for insert to authenticated with check (
     remetente_id = auth.uid()
     and public.pode_ver_canal(canal_id)
-    and (not privada or public.meu_papel() = 'aluno'));
+    and ((not privada and destinatario_id is null)
+      or (privada and public.meu_papel() = 'aluno' and destinatario_id is null)
+      or (privada and public.meu_papel() = 'professor'
+          and public.aluno_na_sala_do_canal(destinatario_id, canal_id))));
+
+-- ADMIN: coloca alunos em salas e vincula professores a matérias.
+-- (pelo site; só a coluna sala_id é liberada, o papel ninguém altera)
+drop policy if exists "perfis_update_admin" on public.perfis;
+create policy "perfis_update_admin" on public.perfis
+  for update to authenticated
+  using (public.meu_papel() = 'admin') with check (public.meu_papel() = 'admin');
+drop policy if exists "turmas_admin" on public.professor_turmas;
+create policy "turmas_admin" on public.professor_turmas
+  for all to authenticated
+  using (public.meu_papel() = 'admin') with check (public.meu_papel() = 'admin');
 
 grant select on public.perfis, public.salas, public.materias,
   public.canais, public.professor_turmas to authenticated;
+grant update (sala_id) on public.perfis to authenticated;
+grant insert, delete on public.professor_turmas to authenticated;
 grant select, insert on public.mensagens to authenticated;
 grant usage, select on sequence public.mensagens_id_seq to authenticated;
 
 -- 8) REALTIME (o RLS acima também vale para as mensagens ao vivo)
-alter publication supabase_realtime add table public.mensagens;
+do $$ begin
+  alter publication supabase_realtime add table public.mensagens;
+exception when duplicate_object then null;
+end $$;
 
 -- ============================================================
 -- COMO CRIAR USUÁRIOS (não existe cadastro público no site)
 -- Painel: Authentication > Users > Add user, com "Auto Confirm User"
 -- e User Metadata: { "nome": "Maria Silva", "papel": "professor" }
 --
--- COMO VINCULAR (rode no SQL Editor depois de criar o usuário):
+-- COMO VINCULAR: pelo painel do admin no site. Ou, por SQL:
 --   -- aluno em uma sala
 --   update public.perfis set sala_id = (select id from public.salas where nome = '1º A')
 --    where email = 'ana.souza@escola.com';

@@ -4,7 +4,8 @@
 let usuarioAtual = null;      // { id, nome, email, papel }
 let canalAtual = null;         // { id, salas:{nome}, materias:{nome} } do chat aberto
 let canalRealtime = null;      // inscrição do chat em tempo real
-const nomes = {};              // id do usuário -> nome (para mostrar quem escreveu)
+const perfisPorId = {};        // id -> { nome, papel } (para mostrar quem escreveu)
+let respondendoA = null;       // professor: id do aluno que recebe a resposta particular
 
 // ============================================================
 // ELEMENTOS
@@ -118,8 +119,8 @@ function mostrarTela(nome) {
 // CHAT — nomes dos usuários (para exibir o autor de cada mensagem)
 // ============================================================
 async function carregarNomes() {
-  const { data } = await supabaseClient.from("perfis").select("id, nome");
-  (data || []).forEach((p) => (nomes[p.id] = p.nome));
+  const { data } = await supabaseClient.from("perfis").select("id, nome, papel");
+  (data || []).forEach((p) => (perfisPorId[p.id] = p));
 }
 
 // ============================================================
@@ -160,6 +161,7 @@ async function carregarCanais() {
 }
 
 async function selecionarCanal(canal, titulo, elementoClicado) {
+  cancelarResposta();
   canalAtual = canal;
   document.querySelectorAll(".contato-item").forEach((el) => el.classList.remove("ativo"));
   elementoClicado.classList.add("ativo");
@@ -199,24 +201,57 @@ function renderizarMensagem(msg) {
   if (caixa.querySelector(".hint")) caixa.innerHTML = "";
 
   const minha = msg.remetente_id === usuarioAtual.id;
+  const autor = perfisPorId[msg.remetente_id] || { nome: "Alguém", papel: "" };
   const bolha = document.createElement("div");
   bolha.className = "bolha " + (minha ? "minha" : "dele") + (msg.privada ? " privada" : "");
 
-  const autor = document.createElement("span");
-  autor.className = "autor";
-  autor.textContent = (minha ? "Você" : nomes[msg.remetente_id] || "Alguém") +
-    (msg.privada ? " · 🔒 só professor" : "");
+  let etiqueta = "";
+  if (msg.privada) {
+    const dest = msg.destinatario_id;
+    etiqueta = dest
+      ? " · 🔒 só para " + (dest === usuarioAtual.id ? "você" : (perfisPorId[dest] || {}).nome || "o aluno")
+      : " · 🔒 só professor";
+  }
+  const topo = document.createElement("span");
+  topo.className = "autor";
+  topo.textContent = (minha ? "Você" : autor.nome) + etiqueta;
 
   const texto = document.createElement("div");
   texto.textContent = msg.conteudo;
+  bolha.append(topo, texto);
 
-  bolha.append(autor, texto);
+  // O professor pode responder em particular a qualquer mensagem de aluno.
+  if (usuarioAtual.papel === "professor" && autor.papel === "aluno") {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-responder";
+    btn.textContent = "Responder só para " + autor.nome.split(" ")[0];
+    btn.addEventListener("click", () => iniciarResposta(msg.remetente_id));
+    bolha.appendChild(btn);
+  }
+
   caixa.appendChild(bolha);
   caixa.scrollTop = caixa.scrollHeight;
 }
 
+function iniciarResposta(alunoId) {
+  respondendoA = alunoId;
+  document.getElementById("aviso-texto").textContent =
+    "🔒 Sua próxima mensagem vai só para " + perfisPorId[alunoId].nome;
+  document.getElementById("aviso-resposta").classList.remove("hidden");
+  document.getElementById("input-mensagem").focus();
+}
+
+function cancelarResposta() {
+  respondendoA = null;
+  document.getElementById("aviso-resposta").classList.add("hidden");
+}
+document.getElementById("btn-cancelar-resposta").addEventListener("click", cancelarResposta);
+
 // ============================================================
-// CHAT — enviar mensagem (aluno pode marcar "só para o professor")
+// CHAT — enviar mensagem
+//   aluno: pública, ou privada (checkbox "Só professor")
+//   professor: pública, ou privada para um aluno (botão "Responder só para...")
 // ============================================================
 document.getElementById("form-mensagem").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -224,20 +259,25 @@ document.getElementById("form-mensagem").addEventListener("submit", async (e) =>
   const texto = input.value.trim();
   if (!texto || !canalAtual) return;
 
-  const privada = usuarioAtual.papel === "aluno" && document.getElementById("check-privada").checked;
+  const ehAluno = usuarioAtual.papel === "aluno";
+  const privada = ehAluno ? document.getElementById("check-privada").checked : !!respondendoA;
+
   input.value = "";
   const { error } = await supabaseClient.from("mensagens").insert({
     canal_id: canalAtual.id,
     remetente_id: usuarioAtual.id,
     conteudo: texto,
     privada,
+    destinatario_id: !ehAluno && respondendoA ? respondendoA : null,
   });
   if (error) {
     console.error("Erro ao enviar:", error);
     input.value = texto;
     alert("Não foi possível enviar: " + error.message);
+    return;
   }
-  // A mensagem aparece pelo realtime (abaixo), para todos do canal.
+  if (!ehAluno) cancelarResposta();
+  // A mensagem aparece pelo realtime (abaixo), para quem tem permissão de ver.
 });
 
 // ============================================================
@@ -258,24 +298,106 @@ function inscreverRealtime() {
 }
 
 // ============================================================
-// PAINEL ADMIN — lista todos os usuários do sistema
+// PAINEL ADMIN — alunos em salas e professores em matérias
+// (as permissões de escrita estão no schema.sql; só o admin passa)
 // ============================================================
-async function carregarPainelAdmin() {
-  const { data: usuarios } = await supabaseClient
-    .from("perfis")
-    .select("*")
-    .order("criado_em", { ascending: false });
+function avisoAdmin(texto, erro) {
+  const el = document.getElementById("admin-msg");
+  el.style.color = erro ? "#d32f2f" : "#1a7f4b";
+  el.textContent = texto;
+}
 
+function opcoes(select, itens, vazio) {
+  select.innerHTML = "";
+  if (vazio) select.add(new Option(vazio, ""));
+  itens.forEach((i) => select.add(new Option(i.nome, i.id)));
+}
+
+function celula(linha, conteudo) {
+  const td = document.createElement("td");
+  if (conteudo instanceof Node) td.appendChild(conteudo);
+  else td.textContent = conteudo;
+  linha.appendChild(td);
+}
+
+async function carregarPainelAdmin() {
+  const ler = (tabela, ordem) => supabaseClient.from(tabela).select("*").order(ordem);
+  const [u, s, m, t] = await Promise.all([
+    ler("perfis", "nome"), ler("salas", "nome"), ler("materias", "nome"),
+    supabaseClient.from("professor_turmas").select("*"),
+  ]);
+  const usuarios = u.data || [], salas = s.data || [], materias = m.data || [], turmas = t.data || [];
+  const achar = (lista, id) => (lista.find((x) => x.id === id) || {}).nome || "?";
+
+  // --- Alunos e salas
   const corpo = document.getElementById("tabela-usuarios-body");
   corpo.innerHTML = "";
-
-  (usuarios || []).forEach((u) => {
+  usuarios.forEach((usr) => {
     const linha = document.createElement("tr");
-    [u.nome, u.email, u.papel, new Date(u.criado_em).toLocaleString("pt-BR")].forEach((v) => {
-      const td = document.createElement("td");
-      td.textContent = v;
-      linha.appendChild(td);
-    });
+    let sala = "—";
+    if (usr.papel === "aluno") {
+      sala = document.createElement("select");
+      opcoes(sala, salas, "Sem sala");
+      sala.value = usr.sala_id ?? "";
+      sala.addEventListener("change", async () => {
+        const { data, error } = await supabaseClient
+          .from("perfis")
+          .update({ sala_id: sala.value ? Number(sala.value) : null })
+          .eq("id", usr.id)
+          .select();
+        const falhou = error || !data || data.length === 0;
+        avisoAdmin(falhou ? "Não foi possível salvar: " + (error ? error.message : "sem permissão")
+                          : `${usr.nome} agora está em: ${sala.selectedOptions[0].text}.`, falhou);
+      });
+    }
+    celula(linha, usr.nome);
+    celula(linha, usr.email);
+    celula(linha, usr.papel);
+    celula(linha, sala);
     corpo.appendChild(linha);
   });
+
+  // --- Professores e turmas
+  opcoes(document.getElementById("sel-prof"), usuarios.filter((x) => x.papel === "professor"));
+  opcoes(document.getElementById("sel-sala"), salas);
+  opcoes(document.getElementById("sel-materia"), materias);
+
+  document.getElementById("form-vinculo").onsubmit = async (e) => {
+    e.preventDefault();
+    const { error } = await supabaseClient.from("professor_turmas").insert({
+      professor_id: document.getElementById("sel-prof").value,
+      sala_id: Number(document.getElementById("sel-sala").value),
+      materia_id: Number(document.getElementById("sel-materia").value),
+    });
+    if (error) {
+      avisoAdmin(error.code === "23505" ? "Esse vínculo já existe." : "Erro: " + error.message, true);
+      return;
+    }
+    await carregarPainelAdmin();
+    avisoAdmin("Vínculo criado.", false);
+  };
+
+  const corpoTurmas = document.getElementById("tabela-turmas-body");
+  corpoTurmas.innerHTML = "";
+  turmas.forEach((v) => {
+    const linha = document.createElement("tr");
+    const remover = document.createElement("button");
+    remover.type = "button";
+    remover.className = "btn-remover";
+    remover.textContent = "Remover";
+    remover.addEventListener("click", async () => {
+      const { error } = await supabaseClient.from("professor_turmas").delete().match(v);
+      if (error) return avisoAdmin("Erro: " + error.message, true);
+      await carregarPainelAdmin();
+      avisoAdmin("Vínculo removido.", false);
+    });
+    celula(linha, achar(usuarios, v.professor_id));
+    celula(linha, achar(salas, v.sala_id));
+    celula(linha, achar(materias, v.materia_id));
+    celula(linha, remover);
+    corpoTurmas.appendChild(linha);
+  });
+  if (turmas.length === 0) {
+    corpoTurmas.innerHTML = '<tr><td colspan="4" class="hint">Nenhum professor vinculado ainda.</td></tr>';
+  }
 }
