@@ -3,109 +3,84 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Canal Aluno Professor</title>
+  <meta name="theme-color" content="#102b59" />
+  <meta name="description" content="Canal Aluno Professor — comunicação simples e organizada entre alunos e professores." />
+  <title>Canal — Aluno & Professor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
-  <!-- Biblioteca oficial do Supabase (via CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-
   <header class="topbar">
-    <span class="logo">🏫 Canal Aluno Professor</span>
+    <a class="brand" href="#" aria-label="Canal — página inicial">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M5 12.5 20 5l15 7.5v16L20 36 5 28.5z"/><path d="M12 16.5 20 12l8 4.5v8L20 29l-8-4.5z"/><path d="M20 12v17"/></svg></span>
+      <span class="brand-copy"><strong>canal</strong><small>ALUNO & PROFESSOR</small></span>
+    </a>
     <div class="user-info hidden" id="user-info">
-      <span id="user-nome"></span>
-      <span class="badge" id="user-papel"></span>
-      <button id="btn-sair">Sair</button>
+      <div class="user-avatar" id="user-avatar" aria-hidden="true">U</div>
+      <div class="user-details"><strong id="user-nome"></strong><span class="badge" id="user-papel"></span></div>
+      <button class="btn-sair" id="btn-sair" type="button"><span aria-hidden="true">↗</span> Sair</button>
     </div>
   </header>
 
-  <!-- ================= TELA: LOGIN ================= -->
-  <!-- Não existe cadastro público: contas são criadas pelo admin
-       no painel do Supabase (veja o schema.sql). -->
-  <main class="container" id="tela-auth">
-    <div class="card">
-      <div class="emoji">🏫</div>
-      <h1>Canal Aluno Professor</h1>
-      <p class="subtitle">Converse com a sua sala, matéria por matéria</p>
-      <span class="pill">1º ano · Ensino Médio</span>
-
-      <form id="form-login">
+  <main class="container auth-container" id="tela-auth">
+    <section class="auth-intro">
+      <span class="eyebrow"><span class="eyebrow-dot"></span> CONEXÃO QUE TRANSFORMA</span>
+      <h1>Aprender fica melhor quando a conversa <em>acontece.</em></h1>
+      <p>Um espaço dedicado para aproximar alunos e professores, organizar dúvidas e compartilhar conhecimento.</p>
+      <div class="intro-points"><span>✓ Comunicação organizada</span><span>✓ Cada matéria no seu lugar</span><span>✓ Ambiente escolar seguro</span></div>
+      <div class="intro-orbit" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit-core"><span>c.</span></div><span class="orbit-dot dot-one"></span><span class="orbit-dot dot-two"></span><span class="orbit-dot dot-three"></span></div>
+    </section>
+    <section class="card auth-card">
+      <div class="mobile-brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M5 12.5 20 5l15 7.5v16L20 36 5 28.5z"/><path d="M12 16.5 20 12l8 4.5v8L20 29l-8-4.5z"/><path d="M20 12v17"/></svg></span></div>
+      <span class="card-kicker">SEJA BEM-VINDO(A)</span>
+      <h2>Acesse sua conta</h2>
+      <p class="subtitle">Entre para continuar sua jornada de aprendizado.</p>
+      <form id="form-login" novalidate>
         <div class="field">
           <label for="login-email">E-mail</label>
-          <input type="email" id="login-email" required placeholder="seu@email.com" />
+          <div class="input-wrap"><span class="field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></svg></span><input type="email" id="login-email" required autocomplete="username" placeholder="seu@email.com" /></div>
         </div>
         <div class="field">
-          <label for="login-senha">Senha</label>
-          <input type="password" id="login-senha" required placeholder="••••••••" />
+          <div class="label-row"><label for="login-senha">Senha</label><button class="text-link" type="button" id="btn-esqueci">Esqueci minha senha</button></div>
+          <div class="input-wrap"><span class="field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><input type="password" id="login-senha" required autocomplete="current-password" placeholder="Digite sua senha" /><button class="toggle-password" type="button" id="btn-ver-senha" aria-label="Mostrar senha" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
         </div>
-        <p class="msg" id="login-msg"></p>
-        <button type="submit">Entrar</button>
+        <p class="msg" id="login-msg" role="status" aria-live="polite"></p>
+        <button class="btn-primary" type="submit" id="btn-login"><span>Entrar na plataforma</span><span class="button-arrow" aria-hidden="true">→</span></button>
       </form>
-    </div>
+      <div class="secure-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg> Acesso protegido e exclusivo para sua comunidade escolar</div>
+      <p class="account-note">Não possui acesso? <strong>Procure a coordenação.</strong></p>
+    </section>
   </main>
 
-  <!-- ================= TELA: CHAT (ALUNO / PROFESSOR) ================= -->
   <main class="container hidden" id="tela-chat">
     <div class="chat-layout">
-      <aside class="contatos">
-        <h2 id="contatos-titulo">Matérias</h2>
-        <div id="lista-contatos"></div>
-      </aside>
+      <aside class="contatos"><div class="sidebar-heading"><span class="section-icon">▤</span><div><h2 id="contatos-titulo">Matérias</h2><p>Seus espaços de conversa</p></div></div><div id="lista-contatos"></div><div class="sidebar-foot"><span class="status-dot"></span> Ambiente escolar</div></aside>
       <section class="conversa">
-        <div class="conversa-header" id="conversa-header">Selecione uma matéria</div>
-        <div class="conversa-mensagens" id="conversa-mensagens"></div>
-        <div class="aviso-resposta hidden" id="aviso-resposta">
-          <span id="aviso-texto"></span>
-          <button type="button" id="btn-cancelar-resposta" aria-label="Cancelar resposta particular">✕</button>
-        </div>
-        <form class="conversa-input" id="form-mensagem">
-          <label class="opcao-privada hidden" id="opcao-privada" title="Só o professor desta matéria vai ver">
-            <input type="checkbox" id="check-privada" /> 🔒 Só professor
-          </label>
-          <input type="text" id="input-mensagem" placeholder="Digite sua mensagem..." autocomplete="off" disabled />
-          <button type="submit" disabled id="btn-enviar">Enviar</button>
-        </form>
+        <div class="conversa-header"><div class="conversation-symbol" aria-hidden="true">✦</div><div><strong id="conversa-titulo">Selecione uma matéria</strong><small>Canal de comunicação da turma</small></div><span class="online-indicator">● Online</span></div>
+        <div class="conversa-mensagens" id="conversa-mensagens"><div class="empty-state"><div class="empty-art"><span class="empty-bubble bubble-a">•••</span><span class="empty-bubble bubble-b">✦</span><span class="empty-book">▱</span></div><h3>Boas conversas começam aqui</h3><p>Escolha uma matéria ao lado para ver as mensagens e participar.</p></div></div>
+        <div class="aviso-resposta hidden" id="aviso-resposta"><span id="aviso-texto"></span><button type="button" id="btn-cancelar-resposta" aria-label="Cancelar resposta particular">×</button></div>
+        <form class="conversa-input" id="form-mensagem"><label class="opcao-privada hidden" id="opcao-privada" title="Só o professor desta matéria vai ver"><input type="checkbox" id="check-privada" /> <span>🔒 Só professor</span></label><input type="text" id="input-mensagem" placeholder="Escreva sua mensagem..." autocomplete="off" aria-label="Mensagem" disabled /><button type="submit" disabled id="btn-enviar"><span>Enviar</span><span aria-hidden="true">↑</span></button><small class="input-hint">Pressione Enter para enviar</small></form>
       </section>
     </div>
   </main>
 
-  <!-- ================= TELA: ADMIN ================= -->
   <main class="container hidden" id="tela-admin">
-    <div class="stack">
-      <div class="card wide">
-        <h1>Painel do administrador</h1>
-        <p class="subtitle">Coloque cada aluno em uma sala e vincule os professores às matérias que dão.</p>
-        <p class="msg" id="admin-msg"></p>
-        <h2>Alunos e salas</h2>
-        <div class="tabela-rolavel">
-          <table class="tabela-admin">
-            <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Sala</th></tr></thead>
-            <tbody id="tabela-usuarios-body"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card wide">
-        <h2>Professores e turmas</h2>
-        <form class="linha-form" id="form-vinculo">
-          <select id="sel-prof" required aria-label="Professor"></select>
-          <select id="sel-sala" required aria-label="Sala"></select>
-          <select id="sel-materia" required aria-label="Matéria"></select>
-          <button type="submit">Vincular</button>
-        </form>
-        <div class="tabela-rolavel">
-          <table class="tabela-admin">
-            <thead><tr><th>Professor</th><th>Sala</th><th>Matéria</th><th></th></tr></thead>
-            <tbody id="tabela-turmas-body"></tbody>
-          </table>
-        </div>
-      </div>
+    <div class="stack admin-stack">
+      <section class="admin-heading"><span class="eyebrow"><span class="eyebrow-dot"></span> GESTÃO ESCOLAR</span><h1>Painel do administrador</h1><p>Gerencie os acessos, organize as turmas e mantenha sua comunidade conectada.</p></section>
+      <section class="card wide admin-card"><div class="section-title"><div><span class="section-icon">♙</span><h2>Alunos e salas</h2><p>Consulte usuários e organize os alunos por turma.</p></div></div>
+        <div class="admin-toolbar"><label class="search-box"><span aria-hidden="true">⌕</span><input type="search" id="busca-usuarios" placeholder="Buscar por nome ou e-mail..." aria-label="Buscar usuários" /></label><select id="filtro-papel" aria-label="Filtrar por perfil"><option value="">Todos os perfis</option><option value="aluno">Alunos</option><option value="professor">Professores</option><option value="admin">Administradores</option></select><select id="filtro-sala" aria-label="Filtrar por sala"><option value="">Todas as salas</option><option value="sem-sala">Sem sala</option></select></div>
+        <p class="msg admin-msg" id="admin-msg" role="status" aria-live="polite"></p>
+        <div class="tabela-rolavel"><table class="tabela-admin"><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Sala do aluno</th></tr></thead><tbody id="tabela-usuarios-body"></tbody></table></div><div class="table-footer"><span id="usuarios-contagem">0 usuários</span><div class="pagination" id="usuarios-paginacao"></div></div>
+      </section>
+      <section class="card wide admin-card"><div class="section-title"><div><span class="section-icon">▦</span><h2>Professores e turmas</h2><p>Vincule cada professor às matérias e salas correspondentes.</p></div></div>
+        <form class="linha-form" id="form-vinculo"><label><span>Professor</span><select id="sel-prof" required aria-label="Professor"></select></label><label><span>Sala</span><select id="sel-sala" required aria-label="Sala"></select></label><label><span>Matéria</span><select id="sel-materia" required aria-label="Matéria"></select></label><button class="btn-primary" type="submit"><span>Vincular professor</span><span aria-hidden="true">+</span></button></form>
+        <div class="tabela-rolavel"><table class="tabela-admin"><thead><tr><th>Professor</th><th>Sala</th><th>Matéria</th><th>Ação</th></tr></thead><tbody id="tabela-turmas-body"></tbody></table></div>
+      </section>
     </div>
   </main>
-
-  <script src="supabaseClient.js"></script>
-  <script src="app.js"></script>
+  <script src="supabaseClient.js"></script><script src="app.js"></script>
 </body>
 </html>

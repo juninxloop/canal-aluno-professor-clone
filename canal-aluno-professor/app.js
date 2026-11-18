@@ -20,30 +20,77 @@ const userInfo = document.getElementById("user-info");
 // (Não existe fluxo de cadastro aqui — contas são criadas pelo
 // admin no painel do Supabase, já com o papel correto definido.)
 // ============================================================
-document.getElementById("form-login").addEventListener("submit", async (e) => {
+const formLogin = document.getElementById("form-login");
+const botaoLogin = document.getElementById("btn-login");
+const senhaLogin = document.getElementById("login-senha");
+const mensagemLogin = document.getElementById("login-msg");
+
+function mensagemErroLogin(error) {
+  const texto = (error && error.message || "").toLowerCase();
+  if (texto.includes("invalid login") || texto.includes("invalid_credentials")) return "E-mail ou senha incorretos. Confira os dados e tente novamente.";
+  if (texto.includes("email not confirmed")) return "Seu e-mail ainda não foi confirmado. Peça ajuda à coordenação.";
+  if (texto.includes("too many requests")) return "Muitas tentativas em sequência. Aguarde um pouco e tente novamente.";
+  return "Não foi possível entrar agora. Verifique sua conexão e tente novamente.";
+}
+
+formLogin.addEventListener("submit", async (e) => {
   e.preventDefault();
   const email = document.getElementById("login-email").value.trim();
-  const senha = document.getElementById("login-senha").value;
-  const msg = document.getElementById("login-msg");
-  msg.style.color = "#e53935";
-  msg.textContent = "Entrando...";
-
+  const senha = senhaLogin.value;
+  mensagemLogin.classList.remove("success");
+  mensagemLogin.textContent = "";
+  if (!email || !senha) {
+    mensagemLogin.textContent = "Informe seu e-mail e sua senha para continuar.";
+    return;
+  }
+  botaoLogin.disabled = true;
+  botaoLogin.innerHTML = '<span class="loading-spinner" aria-hidden="true"></span><span>Entrando...</span>';
   try {
     const { error } = await supabaseClient.auth.signInWithPassword({ email, password: senha });
-
     if (error) {
-      // Mostra o motivo real do Supabase (ex: "Invalid login credentials",
-      // "Email not confirmed") em vez de esconder o problema.
-      msg.textContent = "Erro ao entrar: " + error.message;
+      mensagemLogin.textContent = mensagemErroLogin(error);
       return;
     }
-    msg.textContent = "";
+    mensagemLogin.textContent = "";
     await carregarSessao();
   } catch (err) {
-    // Cai aqui se o problema for de conexão (URL/chave erradas no
-    // supabaseClient.js, CDN bloqueado, sem internet, etc).
     console.error("Falha ao conectar no Supabase:", err);
-    msg.textContent = "Não foi possível conectar ao servidor. Veja o Console (F12) para detalhes.";
+    mensagemLogin.textContent = "Não foi possível conectar ao servidor. Verifique sua internet e tente novamente.";
+  } finally {
+    botaoLogin.disabled = false;
+    botaoLogin.innerHTML = '<span>Entrar na plataforma</span><span class="button-arrow" aria-hidden="true">→</span>';
+  }
+});
+
+document.getElementById("btn-ver-senha").addEventListener("click", () => {
+  const visivel = senhaLogin.type === "password";
+  senhaLogin.type = visivel ? "text" : "password";
+  const botao = document.getElementById("btn-ver-senha");
+  botao.setAttribute("aria-label", visivel ? "Ocultar senha" : "Mostrar senha");
+  botao.setAttribute("aria-pressed", String(visivel));
+});
+
+document.getElementById("btn-esqueci").addEventListener("click", async () => {
+  const email = document.getElementById("login-email").value.trim();
+  if (!email) {
+    mensagemLogin.textContent = "Digite seu e-mail no campo acima para receber o link de recuperação.";
+    document.getElementById("login-email").focus();
+    return;
+  }
+  const link = document.getElementById("btn-esqueci");
+  link.disabled = true;
+  mensagemLogin.textContent = "Enviando link de recuperação...";
+  try {
+    const urlRedirecionamento = new URL("definir-senha.html", window.location.href).href;
+    const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: urlRedirecionamento });
+    if (error) throw error;
+    mensagemLogin.classList.add("success");
+    mensagemLogin.textContent = "Se o endereço estiver cadastrado, você receberá um e-mail com as instruções para redefinir sua senha.";
+  } catch (error) {
+    mensagemLogin.classList.remove("success");
+    mensagemLogin.textContent = "Não foi possível solicitar a recuperação agora. Tente novamente mais tarde.";
+  } finally {
+    link.disabled = false;
   }
 });
 
@@ -93,6 +140,7 @@ async function carregarSessao() {
     usuarioAtual = perfil;
     document.getElementById("user-nome").textContent = perfil.nome;
     document.getElementById("user-papel").textContent = perfil.papel;
+    document.getElementById("user-avatar").textContent = (perfil.nome || "U").trim().charAt(0).toUpperCase();
     userInfo.classList.remove("hidden");
 
     if (perfil.papel === "admin") {
@@ -148,7 +196,8 @@ async function carregarCanais() {
     .forEach((canal) => {
       const item = document.createElement("div");
       item.className = "contato-item";
-      item.textContent = rotulo(canal);
+      const iconesMateria = { "Língua Portuguesa": "文", "Matemática": "∑", "Biologia": "❋", "Física": "⚛", "Química": "⚗", "História": "◷", "Geografia": "◎", "Filosofia": "◇", "Sociologia": "♧", "Língua Inglesa": "A", "Educação Física": "↗", "Arte": "✦" };
+      item.textContent = (iconesMateria[canal.materias.nome] || "•") + "  " + rotulo(canal);
       item.addEventListener("click", () => selecionarCanal(canal, rotulo(canal), item));
       lista.appendChild(item);
     });
@@ -166,7 +215,7 @@ async function selecionarCanal(canal, titulo, elementoClicado) {
   document.querySelectorAll(".contato-item").forEach((el) => el.classList.remove("ativo"));
   elementoClicado.classList.add("ativo");
 
-  document.getElementById("conversa-header").textContent = titulo;
+  document.getElementById("conversa-titulo").textContent = titulo;
   document.getElementById("input-mensagem").disabled = false;
   document.getElementById("btn-enviar").disabled = false;
 
@@ -179,7 +228,7 @@ async function selecionarCanal(canal, titulo, elementoClicado) {
 // ============================================================
 async function carregarMensagens() {
   const caixa = document.getElementById("conversa-mensagens");
-  caixa.textContent = "Carregando...";
+  caixa.innerHTML = '<p class="hint">Carregando mensagens...</p>';
 
   const { data: mensagens } = await supabaseClient
     .from("mensagens")
@@ -190,7 +239,7 @@ async function carregarMensagens() {
 
   caixa.innerHTML = "";
   if (!mensagens || mensagens.length === 0) {
-    caixa.innerHTML = '<p class="hint">Nenhuma mensagem ainda. Seja o primeiro a escrever.</p>';
+    caixa.innerHTML = '<div class="empty-state"><div class="empty-art"><span class="empty-bubble bubble-a">•••</span><span class="empty-bubble bubble-b">✦</span><span class="empty-book">▱</span></div><h3>Esta conversa está começando</h3><p>Envie a primeira mensagem para iniciar a troca de conhecimento.</p></div>';
   }
   (mensagens || []).forEach(renderizarMensagem);
   caixa.scrollTop = caixa.scrollHeight;
@@ -198,7 +247,7 @@ async function carregarMensagens() {
 
 function renderizarMensagem(msg) {
   const caixa = document.getElementById("conversa-mensagens");
-  if (caixa.querySelector(".hint")) caixa.innerHTML = "";
+  if (caixa.querySelector(".hint") || caixa.querySelector(".empty-state")) caixa.innerHTML = "";
 
   const minha = msg.remetente_id === usuarioAtual.id;
   const autor = perfisPorId[msg.remetente_id] || { nome: "Alguém", papel: "" };
@@ -214,11 +263,21 @@ function renderizarMensagem(msg) {
   }
   const topo = document.createElement("span");
   topo.className = "autor";
-  topo.textContent = (minha ? "Você" : autor.nome) + etiqueta;
+  const avatar = document.createElement("span");
+  avatar.className = "avatar-mini";
+  avatar.textContent = (minha ? (usuarioAtual.nome || "V") : (autor.nome || "A")).trim().charAt(0).toUpperCase();
+  const nomeAutor = document.createElement("span");
+  nomeAutor.textContent = (minha ? "Você" : autor.nome) + etiqueta;
+  topo.append(avatar, nomeAutor);
 
   const texto = document.createElement("div");
   texto.textContent = msg.conteudo;
-  bolha.append(topo, texto);
+  const hora = document.createElement("time");
+  hora.className = "mensagem-hora";
+  const dataMensagem = msg.criado_em ? new Date(msg.criado_em) : new Date();
+  hora.dateTime = dataMensagem.toISOString();
+  hora.textContent = dataMensagem.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  bolha.append(topo, texto, hora);
 
   // O professor pode responder em particular a qualquer mensagem de aluno.
   if (usuarioAtual.papel === "professor" && autor.papel === "aluno") {
@@ -262,6 +321,9 @@ document.getElementById("form-mensagem").addEventListener("submit", async (e) =>
   const ehAluno = usuarioAtual.papel === "aluno";
   const privada = ehAluno ? document.getElementById("check-privada").checked : !!respondendoA;
 
+  const botaoEnviar = document.getElementById("btn-enviar");
+  botaoEnviar.disabled = true;
+  botaoEnviar.innerHTML = "Enviando...";
   input.value = "";
   const { error } = await supabaseClient.from("mensagens").insert({
     canal_id: canalAtual.id,
@@ -273,9 +335,16 @@ document.getElementById("form-mensagem").addEventListener("submit", async (e) =>
   if (error) {
     console.error("Erro ao enviar:", error);
     input.value = texto;
-    alert("Não foi possível enviar: " + error.message);
+    botaoEnviar.disabled = false;
+    botaoEnviar.innerHTML = '<span>Enviar</span><span aria-hidden="true">↑</span>';
+    const aviso = document.getElementById("aviso-resposta");
+    document.getElementById("aviso-texto").textContent = "Não foi possível enviar. Confira sua conexão e tente novamente.";
+    aviso.classList.remove("hidden");
     return;
   }
+  botaoEnviar.disabled = false;
+  botaoEnviar.innerHTML = '<span>Enviado</span><span aria-hidden="true">✓</span>';
+  window.setTimeout(() => { if (botaoEnviar.isConnected) botaoEnviar.innerHTML = '<span>Enviar</span><span aria-hidden="true">↑</span>'; }, 1200);
   if (!ehAluno) cancelarResposta();
   // A mensagem aparece pelo realtime (abaixo), para quem tem permissão de ver.
 });
@@ -320,6 +389,91 @@ function celula(linha, conteudo) {
   linha.appendChild(td);
 }
 
+let usuariosAdminCache = [];
+let salasAdminCache = [];
+let paginaUsuarios = 1;
+const USUARIOS_POR_PAGINA = 8;
+
+function renderizarUsuariosAdmin() {
+  const busca = (document.getElementById("busca-usuarios").value || "").trim().toLocaleLowerCase("pt-BR");
+  const papel = document.getElementById("filtro-papel").value;
+  const salaFiltro = document.getElementById("filtro-sala").value;
+  const filtrados = usuariosAdminCache.filter((usr) => {
+    const correspondeBusca = !busca || (usr.nome || "").toLocaleLowerCase("pt-BR").includes(busca) || (usr.email || "").toLocaleLowerCase("pt-BR").includes(busca);
+    const correspondePapel = !papel || usr.papel === papel;
+    const correspondeSala = !salaFiltro || (salaFiltro === "sem-sala" ? usr.papel === "aluno" && !usr.sala_id : String(usr.sala_id || "") === salaFiltro);
+    return correspondeBusca && correspondePapel && correspondeSala;
+  });
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / USUARIOS_POR_PAGINA));
+  paginaUsuarios = Math.min(paginaUsuarios, totalPaginas);
+  const inicio = (paginaUsuarios - 1) * USUARIOS_POR_PAGINA;
+  const pagina = filtrados.slice(inicio, inicio + USUARIOS_POR_PAGINA);
+  const corpo = document.getElementById("tabela-usuarios-body");
+  corpo.innerHTML = "";
+  pagina.forEach((usr) => {
+    const linha = document.createElement("tr");
+    const sala = usr.papel === "aluno" ? document.createElement("select") : "—";
+    if (usr.papel === "aluno") {
+      if (!usr.sala_id) linha.classList.add("linha-sem-sala");
+      opcoes(sala, salasAdminCache, "Sem sala");
+      sala.value = usr.sala_id ?? "";
+      sala.setAttribute("aria-label", "Sala de " + usr.nome);
+      if (!usr.sala_id) sala.classList.add("sem-sala");
+      sala.addEventListener("change", async () => {
+        sala.disabled = true;
+        const { data, error } = await supabaseClient.from("perfis").update({ sala_id: sala.value ? Number(sala.value) : null }).eq("id", usr.id).select();
+        const falhou = error || !data || data.length === 0;
+        if (!falhou) {
+          usr.sala_id = sala.value ? Number(sala.value) : null;
+          avisoAdmin(`${usr.nome} foi atualizado(a) para ${sala.selectedOptions[0].text}.`, false);
+        } else {
+          avisoAdmin("Não foi possível atualizar a sala. Verifique as permissões e tente novamente.", true);
+          sala.value = usr.sala_id ?? "";
+        }
+        sala.disabled = false;
+        sala.classList.toggle("sem-sala", !usr.sala_id);
+        linha.classList.toggle("linha-sem-sala", !usr.sala_id);
+        atualizarFiltroSalas();
+      });
+    }
+    celula(linha, usr.nome || "Sem nome");
+    celula(linha, usr.email || "—");
+    const perfil = document.createElement("span");
+    perfil.className = "role-badge role-" + usr.papel;
+    perfil.textContent = usr.papel;
+    celula(linha, perfil);
+    celula(linha, sala);
+    corpo.appendChild(linha);
+  });
+  if (!pagina.length) corpo.innerHTML = '<tr><td colspan="4" class="hint">Nenhum usuário encontrado com esses filtros.</td></tr>';
+  document.getElementById("usuarios-contagem").textContent = `${filtrados.length} de ${usuariosAdminCache.length} usuários`;
+  const paginacao = document.getElementById("usuarios-paginacao");
+  paginacao.innerHTML = "";
+  const anterior = document.createElement("button");
+  anterior.type = "button"; anterior.textContent = "‹"; anterior.disabled = paginaUsuarios <= 1;
+  anterior.setAttribute("aria-label", "Página anterior");
+  anterior.addEventListener("click", () => { paginaUsuarios--; renderizarUsuariosAdmin(); });
+  paginacao.appendChild(anterior);
+  for (let i = 1; i <= totalPaginas; i++) {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = String(i); b.classList.toggle("active", i === paginaUsuarios); b.setAttribute("aria-label", "Página " + i);
+    b.addEventListener("click", () => { paginaUsuarios = i; renderizarUsuariosAdmin(); });
+    paginacao.appendChild(b);
+  }
+  const proxima = document.createElement("button");
+  proxima.type = "button"; proxima.textContent = "›"; proxima.disabled = paginaUsuarios >= totalPaginas;
+  proxima.setAttribute("aria-label", "Próxima página");
+  proxima.addEventListener("click", () => { paginaUsuarios++; renderizarUsuariosAdmin(); });
+  paginacao.appendChild(proxima);
+}
+
+function atualizarFiltroSalas() {
+  const filtro = document.getElementById("filtro-sala");
+  const valorAtual = filtro.value;
+  filtro.innerHTML = '<option value="">Todas as salas</option><option value="sem-sala">Sem sala</option>';
+  salasAdminCache.forEach((s) => filtro.add(new Option(s.nome, String(s.id))));
+  filtro.value = [...filtro.options].some((o) => o.value === valorAtual) ? valorAtual : "";
+}
+
 async function carregarPainelAdmin() {
   const ler = (tabela, ordem) => supabaseClient.from(tabela).select("*").order(ordem);
   const [u, s, m, t] = await Promise.all([
@@ -327,77 +481,99 @@ async function carregarPainelAdmin() {
     supabaseClient.from("professor_turmas").select("*"),
   ]);
   const usuarios = u.data || [], salas = s.data || [], materias = m.data || [], turmas = t.data || [];
-  const achar = (lista, id) => (lista.find((x) => x.id === id) || {}).nome || "?";
-
-  // --- Alunos e salas
-  const corpo = document.getElementById("tabela-usuarios-body");
-  corpo.innerHTML = "";
-  usuarios.forEach((usr) => {
-    const linha = document.createElement("tr");
-    let sala = "—";
-    if (usr.papel === "aluno") {
-      sala = document.createElement("select");
-      opcoes(sala, salas, "Sem sala");
-      sala.value = usr.sala_id ?? "";
-      sala.addEventListener("change", async () => {
-        const { data, error } = await supabaseClient
-          .from("perfis")
-          .update({ sala_id: sala.value ? Number(sala.value) : null })
-          .eq("id", usr.id)
-          .select();
-        const falhou = error || !data || data.length === 0;
-        avisoAdmin(falhou ? "Não foi possível salvar: " + (error ? error.message : "sem permissão")
-                          : `${usr.nome} agora está em: ${sala.selectedOptions[0].text}.`, falhou);
-      });
+  usuariosAdminCache = usuarios;
+  salasAdminCache = salas;
+  atualizarFiltroSalas();
+  ["busca-usuarios", "filtro-papel", "filtro-sala"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el.dataset.bound) {
+      el.addEventListener(id === "busca-usuarios" ? "input" : "change", () => { paginaUsuarios = 1; renderizarUsuariosAdmin(); });
+      el.dataset.bound = "true";
     }
-    celula(linha, usr.nome);
-    celula(linha, usr.email);
-    celula(linha, usr.papel);
-    celula(linha, sala);
-    corpo.appendChild(linha);
   });
-
-  // --- Professores e turmas
-  opcoes(document.getElementById("sel-prof"), usuarios.filter((x) => x.papel === "professor"));
-  opcoes(document.getElementById("sel-sala"), salas);
-  opcoes(document.getElementById("sel-materia"), materias);
+  renderizarUsuariosAdmin();
+  const achar = (lista, id) => (lista.find((x) => String(x.id) === String(id)) || {}).nome || "?";
+  opcoes(document.getElementById("sel-prof"), usuarios.filter((x) => x.papel === "professor"), "Selecione um professor");
+  opcoes(document.getElementById("sel-sala"), salas, "Selecione uma sala");
+  opcoes(document.getElementById("sel-materia"), materias, "Selecione uma matéria");
 
   document.getElementById("form-vinculo").onsubmit = async (e) => {
     e.preventDefault();
+    const form = e.currentTarget;
+    const botao = form.querySelector("button[type=submit]");
+    botao.disabled = true;
+    botao.innerHTML = "Vinculando...";
     const { error } = await supabaseClient.from("professor_turmas").insert({
       professor_id: document.getElementById("sel-prof").value,
       sala_id: Number(document.getElementById("sel-sala").value),
       materia_id: Number(document.getElementById("sel-materia").value),
     });
     if (error) {
-      avisoAdmin(error.code === "23505" ? "Esse vínculo já existe." : "Erro: " + error.message, true);
-      return;
+      avisoAdmin(error.code === "23505" ? "Esse professor já está vinculado a essa matéria e sala." : "Não foi possível criar o vínculo. Verifique os dados e tente novamente.", true);
+    } else {
+      avisoAdmin("Professor vinculado com sucesso!", false);
+      await carregarPainelAdmin();
     }
-    await carregarPainelAdmin();
-    avisoAdmin("Vínculo criado.", false);
+    botao.disabled = false;
+    botao.innerHTML = '<span>Vincular professor</span><span aria-hidden="true">+</span>';
   };
 
   const corpoTurmas = document.getElementById("tabela-turmas-body");
   corpoTurmas.innerHTML = "";
   turmas.forEach((v) => {
     const linha = document.createElement("tr");
-    const remover = document.createElement("button");
-    remover.type = "button";
-    remover.className = "btn-remover";
-    remover.textContent = "Remover";
-    remover.addEventListener("click", async () => {
-      const { error } = await supabaseClient.from("professor_turmas").delete().match(v);
-      if (error) return avisoAdmin("Erro: " + error.message, true);
+    const professorCell = document.createElement("td");
+    const salaCell = document.createElement("td");
+    const materiaCell = document.createElement("td");
+    professorCell.textContent = achar(usuarios, v.professor_id);
+    salaCell.textContent = achar(salas, v.sala_id);
+    materiaCell.textContent = achar(materias, v.materia_id);
+    const acoes = document.createElement("td");
+    const editar = document.createElement("button");
+    editar.type = "button"; editar.className = "btn-editar"; editar.textContent = "Editar";
+    let editando = false;
+    let editores = null;
+    editar.addEventListener("click", async () => {
+      if (!editando) {
+        const selProfessor = document.createElement("select");
+        const selSala = document.createElement("select");
+        const selMateria = document.createElement("select");
+        opcoes(selProfessor, usuarios.filter((x) => x.papel === "professor"));
+        opcoes(selSala, salas);
+        opcoes(selMateria, materias);
+        selProfessor.value = v.professor_id; selSala.value = String(v.sala_id); selMateria.value = String(v.materia_id);
+        professorCell.replaceChildren(selProfessor); salaCell.replaceChildren(selSala); materiaCell.replaceChildren(selMateria);
+        editores = { selProfessor, selSala, selMateria };
+        editando = true;
+        editar.textContent = "Salvar"; editar.classList.add("btn-salvar-edicao");
+        const cancelar = document.createElement("button"); cancelar.type = "button"; cancelar.className = "btn-remover"; cancelar.textContent = "Cancelar";
+        acoes.appendChild(cancelar);
+        cancelar.addEventListener("click", () => { carregarPainelAdmin(); });
+        return;
+      }
+      editar.disabled = true;
+      const novos = { professor_id: editores.selProfessor.value, sala_id: Number(editores.selSala.value), materia_id: Number(editores.selMateria.value) };
+      const { error } = await supabaseClient.from("professor_turmas").update(novos).match(v);
+      if (error) {
+        editar.disabled = false;
+        return avisoAdmin(error.code === "23505" ? "Esse vínculo já existe." : "Não foi possível atualizar o vínculo.", true);
+      }
       await carregarPainelAdmin();
-      avisoAdmin("Vínculo removido.", false);
+      avisoAdmin("Vínculo atualizado com sucesso.", false);
     });
-    celula(linha, achar(usuarios, v.professor_id));
-    celula(linha, achar(salas, v.sala_id));
-    celula(linha, achar(materias, v.materia_id));
-    celula(linha, remover);
+    const remover = document.createElement("button");
+    remover.type = "button"; remover.className = "btn-remover"; remover.textContent = "Remover";
+    remover.addEventListener("click", async () => {
+      if (!window.confirm("Deseja remover este vínculo de professor, sala e matéria?")) return;
+      remover.disabled = true;
+      const { error } = await supabaseClient.from("professor_turmas").delete().match(v);
+      if (error) { remover.disabled = false; return avisoAdmin("Não foi possível remover o vínculo. Tente novamente.", true); }
+      await carregarPainelAdmin();
+      avisoAdmin("Vínculo removido com sucesso.", false);
+    });
+    acoes.append(editar, remover);
+    linha.append(professorCell, salaCell, materiaCell, acoes);
     corpoTurmas.appendChild(linha);
   });
-  if (turmas.length === 0) {
-    corpoTurmas.innerHTML = '<tr><td colspan="4" class="hint">Nenhum professor vinculado ainda.</td></tr>';
-  }
+  if (turmas.length === 0) corpoTurmas.innerHTML = '<tr><td colspan="4" class="hint">Nenhum professor vinculado ainda. Use o formulário acima para começar.</td></tr>';
 }

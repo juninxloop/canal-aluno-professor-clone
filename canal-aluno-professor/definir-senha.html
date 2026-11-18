@@ -3,39 +3,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Definir senha — Canal Aluno Professor</title>
+  <meta name="theme-color" content="#102b59" />
+  <title>Definir senha — Canal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
-  <!-- Biblioteca oficial do Supabase (via CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-
-  <header class="topbar">
-    <span class="logo">🏫 Canal Aluno Professor</span>
-  </header>
-
-  <main class="container">
-    <div class="card">
-      <h1 id="titulo">Definir senha</h1>
-      <p class="subtitle" id="subtitulo">
-        Você recebeu um convite. Escolha uma senha para acessar sua conta.
-      </p>
-
+  <header class="topbar"><a class="brand" href="index.html" aria-label="Canal — página inicial"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M5 12.5 20 5l15 7.5v16L20 36 5 28.5z"/><path d="M12 16.5 20 12l8 4.5v8L20 29l-8-4.5z"/><path d="M20 12v17"/></svg></span><span class="brand-copy"><strong>canal</strong><small>ALUNO & PROFESSOR</small></span></a></header>
+  <main class="container auth-container" style="justify-content:center;min-height:calc(100vh - 82px)">
+    <section class="card auth-card" style="max-width:460px">
+      <span class="card-kicker">SEGURANÇA DA CONTA</span>
+      <h2 id="titulo">Definir nova senha</h2>
+      <p class="subtitle" id="subtitulo">Escolha uma senha segura para acessar sua comunidade escolar.</p>
       <form id="form-definir-senha">
-        <div class="field">
-          <label>Nova senha</label>
-          <input type="password" id="nova-senha" required minlength="6" placeholder="Mínimo 6 caracteres" />
-        </div>
-        <div class="field">
-          <label>Confirmar senha</label>
-          <input type="password" id="confirmar-senha" required minlength="6" placeholder="Repita a senha" />
-        </div>
-        <p class="msg" id="msg"></p>
-        <button type="submit" id="btn-salvar">Salvar senha e entrar</button>
+        <div class="field"><label for="nova-senha">Nova senha</label><div class="input-wrap"><input type="password" id="nova-senha" required minlength="6" autocomplete="new-password" placeholder="Mínimo de 6 caracteres" /><button class="toggle-password" type="button" data-toggle="nova-senha" aria-label="Mostrar nova senha"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
+        <div class="field"><label for="confirmar-senha">Confirmar senha</label><div class="input-wrap"><input type="password" id="confirmar-senha" required minlength="6" autocomplete="new-password" placeholder="Digite a senha novamente" /><button class="toggle-password" type="button" data-toggle="confirmar-senha" aria-label="Mostrar confirmação da senha"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
+        <p class="msg" id="msg" role="status" aria-live="polite"></p>
+        <button class="btn-primary" type="submit" id="btn-salvar">Salvar senha e entrar</button>
       </form>
-    </div>
+    </section>
   </main>
-
   <script src="supabaseClient.js"></script>
   <script>
     const form = document.getElementById('form-definir-senha');
@@ -43,54 +32,42 @@
     const btn = document.getElementById('btn-salvar');
     const titulo = document.getElementById('titulo');
     const subtitulo = document.getElementById('subtitulo');
-
-    // Quando o usuário clica no link do e-mail, o Supabase adiciona
-    // um token na URL e a própria biblioteca (detectSessionInUrl,
-    // ligado por padrão) já cria uma sessão temporária automaticamente.
-    // Aqui só conferimos se essa sessão existe antes de liberar o formulário.
+    document.querySelectorAll('[data-toggle]').forEach((toggle) => toggle.addEventListener('click', () => {
+      const input = document.getElementById(toggle.dataset.toggle);
+      const visible = input.type === 'password';
+      input.type = visible ? 'text' : 'password';
+      toggle.setAttribute('aria-label', visible ? 'Ocultar senha' : 'Mostrar senha');
+    }));
     async function verificarLink() {
       const { data, error } = await supabaseClient.auth.getSession();
-
       if (error || !data.session) {
         titulo.textContent = 'Link inválido ou expirado';
-        subtitulo.textContent = 'Peça para a coordenação enviar um novo convite.';
+        subtitulo.textContent = 'Volte à página de login e solicite um novo link de recuperação.';
         form.classList.add('hidden');
       }
     }
-
     form.addEventListener('submit', async (evento) => {
       evento.preventDefault();
       msg.textContent = '';
-
+      msg.classList.remove('success');
       const novaSenha = document.getElementById('nova-senha').value;
       const confirmarSenha = document.getElementById('confirmar-senha').value;
-
-      if (novaSenha !== confirmarSenha) {
-        msg.textContent = 'As senhas não coincidem.';
-        return;
-      }
-
+      if (novaSenha.length < 6) { msg.textContent = 'Sua senha precisa ter pelo menos 6 caracteres.'; return; }
+      if (novaSenha !== confirmarSenha) { msg.textContent = 'As senhas não coincidem. Confira os dois campos.'; return; }
       btn.disabled = true;
-      btn.textContent = 'Salvando...';
-
+      btn.innerHTML = '<span class="loading-spinner" aria-hidden="true"></span><span>Salvando...</span>';
       const { error } = await supabaseClient.auth.updateUser({ password: novaSenha });
-
       if (error) {
-        msg.textContent = 'Erro ao salvar: ' + error.message;
+        msg.textContent = 'Não foi possível salvar a senha. Solicite um novo link e tente novamente.';
         btn.disabled = false;
         btn.textContent = 'Salvar senha e entrar';
         return;
       }
-
-      titulo.textContent = 'Senha definida!';
-      subtitulo.textContent = 'Redirecionando para o login...';
+      titulo.textContent = 'Senha definida com sucesso!';
+      subtitulo.textContent = 'Sua conta está pronta. Você será redirecionado para o login.';
       form.classList.add('hidden');
-
-      setTimeout(() => {
-        window.location.href = 'index.html';
-      }, 1500);
+      window.setTimeout(() => { window.location.href = 'index.html'; }, 1600);
     });
-
     verificarLink();
   </script>
 </body>
