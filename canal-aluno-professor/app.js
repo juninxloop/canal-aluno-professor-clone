@@ -95,12 +95,48 @@ document.getElementById("btn-esqueci").addEventListener("click", async () => {
 });
 
 // ============================================================
+// LIMPAR INTERFACE — zera tudo que era do usuário anterior
+// (conversa aberta, mensagens na tela, listas, filtros e cache)
+// Roda ao sair e antes de carregar a sessão de outra pessoa.
+// ============================================================
+const ESTADO_INICIAL_CHAT = document.getElementById("conversa-mensagens").innerHTML;
+
+function limparInterface() {
+  if (canalRealtime) {
+    supabaseClient.removeChannel(canalRealtime);
+    canalRealtime = null;
+  }
+  canalAtual = null;
+  respondendoA = null;
+  Object.keys(perfisPorId).forEach((id) => delete perfisPorId[id]);
+  usuariosAdminCache = [];
+  salasAdminCache = [];
+  paginaUsuarios = 1;
+
+  document.getElementById("conversa-mensagens").innerHTML = ESTADO_INICIAL_CHAT;
+  document.getElementById("conversa-titulo").textContent = "Selecione uma matéria";
+  document.getElementById("lista-contatos").innerHTML = "";
+  document.getElementById("aviso-resposta").classList.add("hidden");
+  document.getElementById("check-privada").checked = false;
+  document.getElementById("input-mensagem").value = "";
+  document.getElementById("input-mensagem").disabled = true;
+  document.getElementById("btn-enviar").disabled = true;
+
+  ["busca-usuarios", "filtro-papel", "filtro-sala"].forEach((id) => {
+    const campo = document.getElementById(id);
+    if (campo) campo.value = "";
+  });
+  document.getElementById("login-senha").value = "";
+  document.getElementById("login-msg").textContent = "";
+}
+
+// ============================================================
 // SAIR
 // ============================================================
 document.getElementById("btn-sair").addEventListener("click", async () => {
-  if (canalRealtime) supabaseClient.removeChannel(canalRealtime);
   await supabaseClient.auth.signOut();
   usuarioAtual = null;
+  limparInterface();
   mostrarTela("auth");
   userInfo.classList.add("hidden");
 });
@@ -137,6 +173,7 @@ async function carregarSessao() {
       return;
     }
 
+    limparInterface();
     usuarioAtual = perfil;
     document.getElementById("user-nome").textContent = perfil.nome;
     document.getElementById("user-papel").textContent = perfil.papel;
