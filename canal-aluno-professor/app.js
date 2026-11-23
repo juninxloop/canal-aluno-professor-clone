@@ -121,6 +121,12 @@ function limparInterface() {
   document.getElementById("input-mensagem").value = "";
   document.getElementById("input-mensagem").disabled = true;
   document.getElementById("btn-enviar").disabled = true;
+  document.getElementById("btn-enviar").innerHTML = '<span>Enviar</span><span aria-hidden="true">↑</span>';
+  document.getElementById("opcao-privada").classList.add("hidden");
+  document.getElementById("user-nome").textContent = "";
+  document.getElementById("user-papel").textContent = "";
+  document.getElementById("tabela-usuarios-body").innerHTML = "";
+  document.getElementById("tabela-turmas-body").innerHTML = "";
 
   ["busca-usuarios", "filtro-papel", "filtro-sala"].forEach((id) => {
     const campo = document.getElementById(id);
@@ -133,12 +139,36 @@ function limparInterface() {
 // ============================================================
 // SAIR
 // ============================================================
-document.getElementById("btn-sair").addEventListener("click", async () => {
-  await supabaseClient.auth.signOut();
+function voltarParaLogin() {
   usuarioAtual = null;
   limparInterface();
   mostrarTela("auth");
   userInfo.classList.add("hidden");
+}
+
+document.getElementById("btn-sair").addEventListener("click", async () => {
+  try {
+    await supabaseClient.auth.signOut();
+  } catch (err) {
+    console.error("Erro ao sair:", err);
+  }
+  voltarParaLogin();
+  // Recarrega a página: garante que nada do usuário anterior fique na memória.
+  window.location.reload();
+});
+
+// Se a sessão mudar por fora (outra aba saiu, ou entrou outra pessoa),
+// a tela deste usuário não pode continuar aparecendo.
+// (Dentro deste callback só código síncrono — nada de await no Supabase.)
+supabaseClient.auth.onAuthStateChange((evento, sessao) => {
+  const novoId = sessao && sessao.user ? sessao.user.id : null;
+  if (evento === "SIGNED_OUT" && usuarioAtual) {
+    voltarParaLogin();
+    return;
+  }
+  if (usuarioAtual && novoId && novoId !== usuarioAtual.id) {
+    window.location.reload();
+  }
 });
 
 // ============================================================
@@ -146,9 +176,13 @@ document.getElementById("btn-sair").addEventListener("click", async () => {
 // ============================================================
 window.addEventListener("DOMContentLoaded", carregarSessao);
 
+let cargaSessaoId = 0; // cada chamada de carregarSessao ganha um número; só a mais recente vale
+
 async function carregarSessao() {
+  const minhaCarga = ++cargaSessaoId;
   try {
     const { data: { user } } = await supabaseClient.auth.getUser();
+    if (minhaCarga !== cargaSessaoId) return;
     if (!user) {
       mostrarTela("auth");
       return;
@@ -173,6 +207,7 @@ async function carregarSessao() {
       return;
     }
 
+    if (minhaCarga !== cargaSessaoId) return;
     limparInterface();
     usuarioAtual = perfil;
     document.getElementById("user-nome").textContent = perfil.nome;
@@ -185,7 +220,9 @@ async function carregarSessao() {
       mostrarTela("admin");
     } else {
       await carregarNomes();
+      if (minhaCarga !== cargaSessaoId || !usuarioAtual || usuarioAtual.id !== perfil.id) return;
       await carregarCanais();
+      if (minhaCarga !== cargaSessaoId || !usuarioAtual || usuarioAtual.id !== perfil.id) return;
       mostrarTela("chat");
     }
   } catch (err) {
@@ -265,6 +302,8 @@ async function selecionarCanal(canal, titulo, elementoClicado) {
 // ============================================================
 async function carregarMensagens() {
   const caixa = document.getElementById("conversa-mensagens");
+  const canalDaCarga = canalAtual;
+  const usuarioDaCarga = usuarioAtual;
   caixa.innerHTML = '<p class="hint">Carregando mensagens...</p>';
 
   const { data: mensagens } = await supabaseClient
@@ -273,6 +312,9 @@ async function carregarMensagens() {
     .eq("canal_id", canalAtual.id)
     .order("criado_em", { ascending: true })
     .limit(200);
+
+  // Se nesse meio tempo o usuário saiu / trocou de canal, descarta o resultado.
+  if (canalAtual !== canalDaCarga || usuarioAtual !== usuarioDaCarga || !usuarioAtual) return;
 
   caixa.innerHTML = "";
   if (!mensagens || mensagens.length === 0) {
@@ -283,6 +325,7 @@ async function carregarMensagens() {
 }
 
 function renderizarMensagem(msg) {
+  if (!usuarioAtual) return;
   const caixa = document.getElementById("conversa-mensagens");
   if (caixa.querySelector(".hint") || caixa.querySelector(".empty-state")) caixa.innerHTML = "";
 
