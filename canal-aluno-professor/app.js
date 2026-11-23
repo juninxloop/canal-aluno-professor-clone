@@ -307,6 +307,21 @@ function cancelarResposta() {
 }
 document.getElementById("btn-cancelar-resposta").addEventListener("click", cancelarResposta);
 
+// Traduz o erro do Supabase em uma mensagem que ajuda a achar o problema
+function mensagemErroEnvio(error) {
+  const m = (error.message || "").toLowerCase();
+  if (m.includes("fetch") || m.includes("network")) {
+    return "Não foi possível enviar. Confira sua conexão e tente novamente.";
+  }
+  if (error.code === "42501" || m.includes("row-level security") || m.includes("permission denied")) {
+    return "Você não tem permissão para escrever neste chat. Fale com a coordenação.";
+  }
+  if (error.code === "PGRST204" || m.includes("schema cache") || m.includes("column")) {
+    return "O banco de dados está desatualizado. Peça ao administrador para rodar o schema.sql mais recente.";
+  }
+  return "Não foi possível enviar agora. Tente novamente em instantes.";
+}
+
 // ============================================================
 // CHAT — enviar mensagem
 //   aluno: pública, ou privada (checkbox "Só professor")
@@ -338,7 +353,7 @@ document.getElementById("form-mensagem").addEventListener("submit", async (e) =>
     botaoEnviar.disabled = false;
     botaoEnviar.innerHTML = '<span>Enviar</span><span aria-hidden="true">↑</span>';
     const aviso = document.getElementById("aviso-resposta");
-    document.getElementById("aviso-texto").textContent = "Não foi possível enviar. Confira sua conexão e tente novamente.";
+    document.getElementById("aviso-texto").textContent = mensagemErroEnvio(error);
     aviso.classList.remove("hidden");
     return;
   }
