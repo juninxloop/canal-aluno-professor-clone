@@ -44,7 +44,9 @@ create table if not exists public.professor_turmas (
 
 -- 3) MENSAGENS (de um canal)
 --   privada = true e destinatario_id vazio -> aluno falando só com o professor
---   privada = true e destinatario_id = aluno -> professor respondendo só àquele aluno
+--   privada = true e destinatario_id = aluno -> professor respondendo em particular
+--                                               a UMA mensagem privada daquele aluno
+--   resposta_a = id da mensagem que está sendo respondida (réplica pública ou privada)
 -- Só recria a tabela se ela ainda for do modelo antigo (1 a 1).
 do $$ begin
   if exists (select 1 from information_schema.tables
@@ -64,6 +66,31 @@ create table if not exists public.mensagens (
 alter table public.mensagens
   add column if not exists destinatario_id uuid references public.perfis (id) on delete cascade;
 create index if not exists mensagens_canal_idx on public.mensagens (canal_id, criado_em);
+
+-- Réplica: aponta para a mensagem respondida. Se a original for apagada, vira null.
+alter table public.mensagens
+  add column if not exists resposta_a bigint references public.mensagens (id) on delete set null;
+create index if not exists mensagens_resposta_idx on public.mensagens (resposta_a);
+
+-- MENSAGENS APAGADAS: cópia arquivada de tudo que foi apagado no chat.
+-- Ninguém lê esta tabela pelo site (sem policy de leitura): só o dono do projeto,
+-- pelo painel do Supabase. Se o usuário ou o canal for excluído, a cópia vai junto.
+create table if not exists public.mensagens_apagadas (
+  id bigserial primary key,
+  mensagem_id bigint not null,
+  canal_id bigint not null references public.canais (id) on delete cascade,
+  remetente_id uuid not null references public.perfis (id) on delete cascade,
+  destinatario_id uuid references public.perfis (id) on delete cascade,
+  conteudo text not null,
+  privada boolean not null,
+  resposta_a bigint,
+  criada_em timestamptz,
+  apagada_em timestamptz not null default now(),
+  apagada_por uuid references public.perfis (id) on delete set null
+);
+create index if not exists mensagens_apagadas_canal_idx on public.mensagens_apagadas (canal_id, apagada_em);
+alter table public.mensagens_apagadas enable row level security;
+revoke all on public.mensagens_apagadas from anon, authenticated;
 
 -- 4) DADOS INICIAIS: grade do 1º ano do Ensino Médio (protótipo)
 insert into public.salas (nome) values ('1º A'), ('1º B') on conflict do nothing;
@@ -126,6 +153,46 @@ returns boolean language sql stable security definer set search_path = public as
     where c.id = p_canal and p.id = p_aluno and p.papel = 'aluno');
 $$;
 
+-- Autor de uma mensagem PRIVADA de aluno para o professor (sem destinatário) deste canal.
+-- Usada para validar a réplica privada do professor. Devolve null se não existir.
+create or replace function public.autor_de_privada_de_aluno(p_msg bigint, p_canal bigint)
+returns uuid language sql stable security definer set search_path = public as $$
+  select m.remetente_id from public.mensagens m
+  where m.id = p_msg and m.canal_id = p_canal
+    and m.privada and m.destinatario_id is null;
+$$;
+
+-- A mensagem é pública e é deste canal? (só dá para fazer réplica pública a mensagem pública)
+create or replace function public.mensagem_publica_do_canal(p_msg bigint, p_canal bigint)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.mensagens m
+    where m.id = p_msg and m.canal_id = p_canal and not m.privada);
+$$;
+
+-- APAGAR: guarda a cópia em mensagens_apagadas e remove da conversa, tudo numa
+-- transação. Pode apagar: quem escreveu, ou o professor do canal.
+create or replace function public.apagar_mensagem(p_id bigint)
+returns void language plpgsql security definer set search_path = public as $$
+declare m public.mensagens%rowtype;
+begin
+  select * into m from public.mensagens where id = p_id;
+  if not found then
+    raise exception 'mensagem_inexistente';
+  end if;
+  if not (m.remetente_id = auth.uid() or public.e_professor_do_canal(m.canal_id)) then
+    raise exception 'sem_permissao' using errcode = '42501';
+  end if;
+  insert into public.mensagens_apagadas
+    (mensagem_id, canal_id, remetente_id, destinatario_id, conteudo, privada, resposta_a, criada_em, apagada_por)
+  values
+    (m.id, m.canal_id, m.remetente_id, m.destinatario_id, m.conteudo, m.privada, m.resposta_a, m.criado_em, auth.uid());
+  delete from public.mensagens where id = p_id;
+end;
+$$;
+revoke all on function public.apagar_mensagem(bigint) from public, anon;
+grant execute on function public.apagar_mensagem(bigint) to authenticated;
+
 -- 7) SEGURANÇA — Row Level Security
 alter table public.perfis enable row level security;
 alter table public.salas enable row level security;
@@ -166,17 +233,28 @@ create policy "mensagens_select" on public.mensagens
          or destinatario_id = auth.uid()
          or public.e_professor_do_canal(canal_id)));
 
--- ENVIAR: como si mesmo, em canal que pode ver. Três formas válidas:
---   pública | privada de aluno (sem destinatário) | privada de professor para um aluno da sala
+-- ENVIAR: como si mesmo, em canal que pode ver. Formas válidas:
+--   1) pública (pode ser réplica a uma mensagem pública do mesmo canal)
+--   2) privada de aluno para o professor (sem destinatário, não é réplica)
+--   3) privada de professor: SÓ como réplica a uma mensagem privada de aluno,
+--      e o destinatário é o autor dessa mensagem (professor não inicia privado do zero)
 drop policy if exists "mensagens_insert" on public.mensagens;
 create policy "mensagens_insert" on public.mensagens
   for insert to authenticated with check (
     remetente_id = auth.uid()
     and public.pode_ver_canal(canal_id)
-    and ((not privada and destinatario_id is null)
-      or (privada and public.meu_papel() = 'aluno' and destinatario_id is null)
+    and (
+      (not privada and destinatario_id is null
+        and (resposta_a is null or public.mensagem_publica_do_canal(resposta_a, canal_id)))
+      or (privada and public.meu_papel() = 'aluno'
+        and destinatario_id is null and resposta_a is null)
       or (privada and public.meu_papel() = 'professor'
-          and public.aluno_na_sala_do_canal(destinatario_id, canal_id))));
+        and public.e_professor_do_canal(canal_id)
+        and resposta_a is not null
+        and destinatario_id is not null
+        and destinatario_id = public.autor_de_privada_de_aluno(resposta_a, canal_id)
+        and public.aluno_na_sala_do_canal(destinatario_id, canal_id))
+    ));
 
 -- ADMIN: coloca alunos em salas e vincula professores a matérias.
 -- (pelo site; só a coluna sala_id é liberada, o papel ninguém altera)

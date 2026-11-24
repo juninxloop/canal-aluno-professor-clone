@@ -13,3 +13,19 @@ body::-webkit-scrollbar,.contatos::-webkit-scrollbar,.conversa-mensagens::-webki
 .loading-spinner{width:15px;height:15px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .linha-sem-sala{background:#fffaf1}.linha-sem-sala td:first-child{border-left:3px solid #e3a43a}.btn-editar{background:#edf4ff;border:1px solid #dce9fb;color:#285e9d;font-weight:700;border-radius:8px;padding:7px 10px;font-size:10px;margin-right:6px}.btn-editar:hover{background:#dfeeff}.btn-salvar-edicao{background:#e8f7f0;border-color:#d4efdf;color:#23764f}.tabela-admin td select{max-width:190px}
 .hint{padding:12px;color:var(--muted);font-size:11px;line-height:1.5}
+
+/* ===== Réplicas e apagar mensagem ===== */
+.bolha-acoes{display:flex;flex-wrap:wrap;gap:12px;margin-top:7px}
+.bolha .btn-acao{background:none;border:0;padding:0;color:inherit;font:inherit;font-size:10px;font-weight:800;text-decoration:underline;cursor:pointer;opacity:.85}
+.bolha .btn-acao:hover{opacity:1}
+.bolha .btn-acao:disabled{opacity:.4;cursor:not-allowed}
+.bolha .btn-apagar{margin-left:auto;text-decoration:none;opacity:.55}
+.bolha.dele .btn-apagar:hover{color:#c62828}
+.citacao{display:block;width:100%;text-align:left;margin:0 0 7px;padding:6px 9px;border:0;border-left:3px solid currentColor;border-radius:6px;background:rgba(0,0,0,.07);color:inherit;font:inherit;font-size:11px;line-height:1.4;cursor:pointer;opacity:.9}
+.bolha.minha .citacao{background:rgba(255,255,255,.16)}
+.citacao strong{display:block;font-size:10px;font-weight:800}
+.citacao span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.citacao-indisponivel{cursor:default;font-style:italic;opacity:.65}
+.bolha.destaque{animation:destaque-msg 1.6s ease}
+@keyframes destaque-msg{0%,60%{box-shadow:0 0 0 3px #79a5df}100%{box-shadow:0 3px 10px rgba(20,48,86,.04)}}
+.opcao-privada input:disabled+span{opacity:.45}

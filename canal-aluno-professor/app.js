@@ -5,7 +5,8 @@ let usuarioAtual = null;      // { id, nome, email, papel }
 let canalAtual = null;         // { id, salas:{nome}, materias:{nome} } do chat aberto
 let canalRealtime = null;      // inscrição do chat em tempo real
 const perfisPorId = {};        // id -> { nome, papel } (para mostrar quem escreveu)
-let respondendoA = null;       // professor: id do aluno que recebe a resposta particular
+let respondendoA = null;       // réplica em andamento: { id, privada, autorId, autorNome }
+const mensagensPorId = {};     // id -> mensagem carregada no chat aberto (para mostrar a citação)
 
 // ============================================================
 // ELEMENTOS
@@ -108,6 +109,7 @@ function limparInterface() {
   }
   canalAtual = null;
   respondendoA = null;
+  Object.keys(mensagensPorId).forEach((id) => delete mensagensPorId[id]);
   Object.keys(perfisPorId).forEach((id) => delete perfisPorId[id]);
   usuariosAdminCache = [];
   salasAdminCache = [];
@@ -118,6 +120,7 @@ function limparInterface() {
   document.getElementById("lista-contatos").innerHTML = "";
   document.getElementById("aviso-resposta").classList.add("hidden");
   document.getElementById("check-privada").checked = false;
+  document.getElementById("check-privada").disabled = false;
   document.getElementById("input-mensagem").value = "";
   document.getElementById("input-mensagem").disabled = true;
   document.getElementById("btn-enviar").disabled = true;
@@ -305,6 +308,7 @@ async function carregarMensagens() {
   const canalDaCarga = canalAtual;
   const usuarioDaCarga = usuarioAtual;
   caixa.innerHTML = '<p class="hint">Carregando mensagens...</p>';
+  Object.keys(mensagensPorId).forEach((id) => delete mensagensPorId[id]);
 
   const { data: mensagens } = await supabaseClient
     .from("mensagens")
@@ -324,15 +328,68 @@ async function carregarMensagens() {
   caixa.scrollTop = caixa.scrollHeight;
 }
 
+const HTML_CONVERSA_VAZIA = '<div class="empty-state"><div class="empty-art"><span class="empty-bubble bubble-a">•••</span><span class="empty-bubble bubble-b">✦</span><span class="empty-book">▱</span></div><h3>Esta conversa está começando</h3><p>Envie a primeira mensagem para iniciar a troca de conhecimento.</p></div>';
+
+function resumir(texto, max = 90) {
+  const t = (texto || "").replace(/\s+/g, " ").trim();
+  return t.length > max ? t.slice(0, max - 1) + "…" : t;
+}
+
+function nomeDoAutor(msg) {
+  if (usuarioAtual && msg.remetente_id === usuarioAtual.id) return "Você";
+  return (perfisPorId[msg.remetente_id] || { nome: "Alguém" }).nome;
+}
+
+function criarCitacaoIndisponivel() {
+  const el = document.createElement("div");
+  el.className = "citacao citacao-indisponivel";
+  el.textContent = "↪ Mensagem original indisponível";
+  return el;
+}
+
+function criarCitacao(idOriginal) {
+  const original = mensagensPorId[idOriginal];
+  if (!original) return criarCitacaoIndisponivel();
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "citacao";
+  el.dataset.alvo = String(idOriginal);
+  const nome = document.createElement("strong");
+  nome.textContent = "↪ " + nomeDoAutor(original);
+  const trecho = document.createElement("span");
+  trecho.textContent = resumir(original.conteudo);
+  el.append(nome, trecho);
+  el.addEventListener("click", () => {
+    const alvo = document.querySelector(`.bolha[data-msg-id="${idOriginal}"]`);
+    if (!alvo) return;
+    alvo.scrollIntoView({ behavior: "smooth", block: "center" });
+    alvo.classList.add("destaque");
+    window.setTimeout(() => alvo.classList.remove("destaque"), 1600);
+  });
+  return el;
+}
+
+function criarBotaoAcao(texto, classe, aoClicar) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn-acao" + (classe ? " " + classe : "");
+  btn.textContent = texto;
+  btn.addEventListener("click", () => aoClicar(btn));
+  return btn;
+}
+
 function renderizarMensagem(msg) {
   if (!usuarioAtual) return;
   const caixa = document.getElementById("conversa-mensagens");
   if (caixa.querySelector(".hint") || caixa.querySelector(".empty-state")) caixa.innerHTML = "";
+  if (caixa.querySelector(`.bolha[data-msg-id="${msg.id}"]`)) return; // já está na tela
+  mensagensPorId[msg.id] = msg;
 
   const minha = msg.remetente_id === usuarioAtual.id;
   const autor = perfisPorId[msg.remetente_id] || { nome: "Alguém", papel: "" };
   const bolha = document.createElement("div");
   bolha.className = "bolha " + (minha ? "minha" : "dele") + (msg.privada ? " privada" : "");
+  bolha.dataset.msgId = String(msg.id);
 
   let etiqueta = "";
   if (msg.privada) {
@@ -357,33 +414,59 @@ function renderizarMensagem(msg) {
   const dataMensagem = msg.criado_em ? new Date(msg.criado_em) : new Date();
   hora.dateTime = dataMensagem.toISOString();
   hora.textContent = dataMensagem.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-  bolha.append(topo, texto, hora);
 
-  // O professor pode responder em particular a qualquer mensagem de aluno.
-  if (usuarioAtual.papel === "professor" && autor.papel === "aluno") {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "btn-responder";
-    btn.textContent = "Responder só para " + autor.nome.split(" ")[0];
-    btn.addEventListener("click", () => iniciarResposta(msg.remetente_id));
-    bolha.appendChild(btn);
+  bolha.append(topo);
+  if (msg.resposta_a) bolha.appendChild(criarCitacao(msg.resposta_a));
+  bolha.append(texto, hora);
+
+  // Ações: responder (pública), responder em particular (só professor, só a
+  // mensagem privada de um aluno) e apagar (autor ou professor do canal).
+  const ehProfessor = usuarioAtual.papel === "professor";
+  const acoes = document.createElement("div");
+  acoes.className = "bolha-acoes";
+  if (!msg.privada) {
+    acoes.appendChild(criarBotaoAcao("Responder", "", () => iniciarResposta(msg, false)));
+  } else if (ehProfessor && !msg.destinatario_id && autor.papel === "aluno") {
+    acoes.appendChild(criarBotaoAcao("Responder em particular", "", () => iniciarResposta(msg, true)));
   }
+  if (minha || ehProfessor) {
+    acoes.appendChild(criarBotaoAcao("Apagar", "btn-apagar", (btn) => apagarMensagem(msg, btn)));
+  }
+  if (acoes.childElementCount) bolha.appendChild(acoes);
 
   caixa.appendChild(bolha);
   caixa.scrollTop = caixa.scrollHeight;
 }
 
-function iniciarResposta(alunoId) {
-  respondendoA = alunoId;
-  document.getElementById("aviso-texto").textContent =
-    "🔒 Sua próxima mensagem vai só para " + perfisPorId[alunoId].nome;
+// ============================================================
+// CHAT — réplica a uma mensagem
+//   pública: qualquer usuário, a qualquer mensagem pública
+//   privada: só o professor, e só a uma mensagem privada de aluno
+// ============================================================
+function mostrarAviso(texto) {
+  document.getElementById("aviso-texto").textContent = texto;
   document.getElementById("aviso-resposta").classList.remove("hidden");
+}
+
+function iniciarResposta(msg, privada) {
+  respondendoA = {
+    id: msg.id,
+    privada,
+    autorId: msg.remetente_id,
+    autorNome: nomeDoAutor(msg),
+  };
+  mostrarAviso((privada ? "🔒 Resposta particular para " : "↪ Respondendo a ") + respondendoA.autorNome + ": “" + resumir(msg.conteudo, 70) + "”");
+  // O aluno não mistura "só professor" com uma réplica pública.
+  const check = document.getElementById("check-privada");
+  check.checked = false;
+  check.disabled = true;
   document.getElementById("input-mensagem").focus();
 }
 
 function cancelarResposta() {
   respondendoA = null;
   document.getElementById("aviso-resposta").classList.add("hidden");
+  document.getElementById("check-privada").disabled = false;
 }
 document.getElementById("btn-cancelar-resposta").addEventListener("click", cancelarResposta);
 
@@ -405,7 +488,8 @@ function mensagemErroEnvio(error) {
 // ============================================================
 // CHAT — enviar mensagem
 //   aluno: pública, ou privada (checkbox "Só professor")
-//   professor: pública, ou privada para um aluno (botão "Responder só para...")
+//   professor: pública, ou réplica privada a uma mensagem privada de aluno
+//   qualquer um: réplica pública a uma mensagem pública (botão "Responder")
 // ============================================================
 document.getElementById("form-mensagem").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -414,7 +498,10 @@ document.getElementById("form-mensagem").addEventListener("submit", async (e) =>
   if (!texto || !canalAtual) return;
 
   const ehAluno = usuarioAtual.papel === "aluno";
-  const privada = ehAluno ? document.getElementById("check-privada").checked : !!respondendoA;
+  const resposta = respondendoA;
+  // Privada: aluno marcando "Só professor", ou professor respondendo em particular
+  // a uma mensagem privada de aluno. O professor não inicia conversa privada do zero.
+  const privada = resposta ? resposta.privada : (ehAluno && document.getElementById("check-privada").checked);
 
   const botaoEnviar = document.getElementById("btn-enviar");
   botaoEnviar.disabled = true;
@@ -425,22 +512,21 @@ document.getElementById("form-mensagem").addEventListener("submit", async (e) =>
     remetente_id: usuarioAtual.id,
     conteudo: texto,
     privada,
-    destinatario_id: !ehAluno && respondendoA ? respondendoA : null,
+    destinatario_id: resposta && resposta.privada ? resposta.autorId : null,
+    resposta_a: resposta ? resposta.id : null,
   });
   if (error) {
     console.error("Erro ao enviar:", error);
     input.value = texto;
     botaoEnviar.disabled = false;
     botaoEnviar.innerHTML = '<span>Enviar</span><span aria-hidden="true">↑</span>';
-    const aviso = document.getElementById("aviso-resposta");
-    document.getElementById("aviso-texto").textContent = mensagemErroEnvio(error);
-    aviso.classList.remove("hidden");
+    mostrarAviso(mensagemErroEnvio(error));
     return;
   }
   botaoEnviar.disabled = false;
   botaoEnviar.innerHTML = '<span>Enviado</span><span aria-hidden="true">✓</span>';
   window.setTimeout(() => { if (botaoEnviar.isConnected) botaoEnviar.innerHTML = '<span>Enviar</span><span aria-hidden="true">↑</span>'; }, 1200);
-  if (!ehAluno) cancelarResposta();
+  cancelarResposta();
   // A mensagem aparece pelo realtime (abaixo), para quem tem permissão de ver.
 });
 
@@ -458,7 +544,45 @@ function inscreverRealtime() {
       { event: "INSERT", schema: "public", table: "mensagens", filter: `canal_id=eq.${canalAtual.id}` },
       (payload) => renderizarMensagem(payload.new)
     )
+    // O evento de DELETE só traz o id; se a mensagem não está nesta tela, nada acontece.
+    .on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: "mensagens" },
+      (payload) => payload.old && payload.old.id && removerMensagemDaTela(payload.old.id)
+    )
     .subscribe();
+}
+
+// ============================================================
+// CHAT — apagar mensagem
+// A cópia vai para a tabela mensagens_apagadas (função apagar_mensagem
+// no schema.sql). Pode apagar: o autor, ou o professor do canal.
+// ============================================================
+async function apagarMensagem(msg, botao) {
+  const ok = window.confirm(
+    "Apagar esta mensagem? Ela some da conversa para todos.\n\nPor segurança, a escola mantém uma cópia arquivada das mensagens apagadas."
+  );
+  if (!ok) return;
+  botao.disabled = true;
+  const { error } = await supabaseClient.rpc("apagar_mensagem", { p_id: msg.id });
+  if (error) {
+    console.error("Erro ao apagar:", error);
+    botao.disabled = false;
+    mostrarAviso("Não foi possível apagar a mensagem. Tente novamente.");
+    return;
+  }
+  removerMensagemDaTela(msg.id);
+}
+
+function removerMensagemDaTela(id) {
+  delete mensagensPorId[id];
+  const caixa = document.getElementById("conversa-mensagens");
+  const bolha = caixa.querySelector(`.bolha[data-msg-id="${id}"]`);
+  if (bolha) bolha.remove();
+  // Réplicas que citavam a mensagem passam a mostrar "indisponível".
+  caixa.querySelectorAll(`.citacao[data-alvo="${id}"]`).forEach((c) => c.replaceWith(criarCitacaoIndisponivel()));
+  if (respondendoA && respondendoA.id === id) cancelarResposta();
+  if (bolha && !caixa.querySelector(".bolha")) caixa.innerHTML = HTML_CONVERSA_VAZIA;
 }
 
 // ============================================================
